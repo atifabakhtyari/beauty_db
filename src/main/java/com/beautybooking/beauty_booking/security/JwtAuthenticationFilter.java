@@ -1,6 +1,9 @@
 
 package com.beautybooking.beauty_booking.security;
 
+import com.beautybooking.beauty_booking.entity.User;
+import com.beautybooking.beauty_booking.repository.UserRepository;
+
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 
@@ -20,9 +23,13 @@ import java.util.List;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
+    private final UserRepository userRepository;
 
-    public JwtAuthenticationFilter(JwtService jwtService) {
+    public JwtAuthenticationFilter(
+            JwtService jwtService,
+            UserRepository userRepository) {
         this.jwtService = jwtService;
+        this.userRepository = userRepository;
     }
 
     @Override
@@ -35,31 +42,51 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String header = request.getHeader("Authorization");
 
         if (header != null && header.startsWith("Bearer ")) {
-            String token = header.substring(7);
+
+            String token = header.substring(7).trim();
 
             try {
+                // بررسی امضا و انقضای توکن
                 Claims claims = jwtService.extractClaims(token);
                 String email = claims.getSubject();
-                String role = claims.get("role", String.class);
 
-                if (email != null && role != null
-                        && SecurityContextHolder.getContext()
-                        .getAuthentication() == null) {
-
-                    var authentication =
-                            new UsernamePasswordAuthenticationToken(
-                                    email,
-                                    null,
-                                    List.of(new SimpleGrantedAuthority(
-                                            "ROLE_" + role
-                                    ))
-                            );
-
-                    SecurityContextHolder.getContext()
-                            .setAuthentication(authentication);
+                if (email == null || email.isBlank()) {
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
                 }
 
+                // دریافت اطلاعات فعلی کاربر از PostgreSQL
+                User user = userRepository
+                        .findByEmailIgnoreCase(email)
+                        .orElse(null);
+
+                // کاربر باید وجود داشته و فعال باشد
+                if (user == null || !user.isActive()) {
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
+                // نقش را از دیتابیس می‌گیریم، نه از JWT
+                String currentRole = user.getRole().name();
+
+                var authentication =
+                        new UsernamePasswordAuthenticationToken(
+                                user.getEmail(),
+                                null,
+                                List.of(
+                                        new SimpleGrantedAuthority(
+                                                "ROLE_" + currentRole
+                                        )
+                                )
+                        );
+
+                SecurityContextHolder.getContext()
+                        .setAuthentication(authentication);
+
             } catch (JwtException | IllegalArgumentException ex) {
+                // توکن نامعتبر یا منقضی‌شده
                 SecurityContextHolder.clearContext();
             }
         }
