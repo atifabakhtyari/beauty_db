@@ -28,6 +28,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     public JwtAuthenticationFilter(
             JwtService jwtService,
             UserRepository userRepository) {
+
         this.jwtService = jwtService;
         this.userRepository = userRepository;
     }
@@ -46,8 +47,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String token = header.substring(7).trim();
 
             try {
-                // بررسی امضا و انقضای توکن
+                // مرحله ۱: بررسی امضا و تاریخ انقضای JWT
                 Claims claims = jwtService.extractClaims(token);
+
                 String email = claims.getSubject();
 
                 if (email == null || email.isBlank()) {
@@ -56,19 +58,33 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
 
-                // دریافت اطلاعات فعلی کاربر از PostgreSQL
+                // مرحله ۲: دریافت اطلاعات فعلی کاربر از دیتابیس
                 User user = userRepository
                         .findByEmailIgnoreCase(email)
                         .orElse(null);
 
-                // کاربر باید وجود داشته و فعال باشد
-                if (user == null || !user.isActive()) {
+                // مرحله ۳: بررسی وجود کاربر
+                if (user == null) {
                     SecurityContextHolder.clearContext();
                     filterChain.doFilter(request, response);
                     return;
                 }
 
-                // نقش را از دیتابیس می‌گیریم، نه از JWT
+                // مرحله ۴: بررسی فعال بودن حساب
+                if (!user.isActive()) {
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
+                // مرحله ۵: بررسی تأیید ایمیل
+                if (!user.isEmailVerified()) {
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
+                // مرحله ۶: دریافت نقش فعلی کاربر از دیتابیس
                 String currentRole = user.getRole().name();
 
                 var authentication =
@@ -82,10 +98,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 )
                         );
 
+                // مرحله ۷: ثبت احراز هویت در Security Context
                 SecurityContextHolder.getContext()
                         .setAuthentication(authentication);
 
             } catch (JwtException | IllegalArgumentException ex) {
+
                 // توکن نامعتبر یا منقضی‌شده
                 SecurityContextHolder.clearContext();
             }

@@ -80,19 +80,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**")
                         .permitAll()
 
-                        .requestMatchers(
-                                HttpMethod.POST,
-                                "/api/auth/register",
-                                "/api/auth/login"
-                        ).permitAll()
-
-                        .requestMatchers(
-                                "/swagger-ui.html",
-                                "/swagger-ui/**",
-                                "/v3/api-docs/**",
-                                "/v3/api-docs.yaml"
-                        ).permitAll()
-
+                        // مسیرهای عمومی احراز هویت
                         .requestMatchers(
                                 HttpMethod.POST,
                                 "/api/auth/register",
@@ -101,6 +89,15 @@ public class SecurityConfig {
                                 "/api/auth/resend-verification"
                         ).permitAll()
 
+                        // مستندات Swagger
+                        .requestMatchers(
+                                "/swagger-ui.html",
+                                "/swagger-ui/**",
+                                "/v3/api-docs/**",
+                                "/v3/api-docs.yaml"
+                        ).permitAll()
+
+                        // مسیرهای مخصوص نقش‌ها
                         .requestMatchers("/api/admin/**")
                         .hasRole("ADMIN")
 
@@ -110,6 +107,7 @@ public class SecurityConfig {
                         .requestMatchers("/api/customer/**")
                         .hasRole("CUSTOMER")
 
+                        // سایر مسیرها نیازمند احراز هویت هستند
                         .anyRequest().authenticated()
                 )
 

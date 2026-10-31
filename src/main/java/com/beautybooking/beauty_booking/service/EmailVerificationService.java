@@ -5,6 +5,9 @@ import com.resend.Resend;
 import com.resend.core.exception.ResendException;
 import com.resend.services.emails.model.CreateEmailOptions;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -20,6 +23,9 @@ import java.util.Locale;
 
 @Service
 public class EmailVerificationService {
+
+    private static final Logger logger =
+            LoggerFactory.getLogger(EmailVerificationService.class);
 
     private final JdbcTemplate jdbcTemplate;
     private final Resend resend;
@@ -123,11 +129,13 @@ public class EmailVerificationService {
 
         try {
             resend.emails().send(params);
-        } catch (ResendException ex) {
+        } catch (ResendException e) {
             // کد تأیید نباید در لاگ ثبت شود.
+            logger.error("Resend email sending failed", e);
+
             throw new IllegalStateException(
                     "ارسال ایمیل تأیید از طریق Resend ناموفق بود.",
-                    ex
+                    e
             );
         }
     }
