@@ -103,6 +103,13 @@ public class SecurityConfig {
                                 "/api/public/profile-images/**"
                         ).permitAll()
 
+                        // پروفایل عمومی سالن و تصاویر آن
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/public/providers/**",
+                                "/api/public/provider-images/**"
+                        ).permitAll()
+
                         // مسیرهای مخصوص نقش‌ها
                         .requestMatchers("/api/admin/**")
                         .hasRole("ADMIN")

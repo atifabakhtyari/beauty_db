@@ -18,4 +18,10 @@ public interface ProviderRepository
     List<Provider> findByApprovalStatus(
             ProviderApprovalStatus approvalStatus
     );
+
+    Optional<Provider> findByProviderIdAndActiveTrueAndApprovalStatus(
+            Long providerId,
+            ProviderApprovalStatus approvalStatus
+    );
+
 }

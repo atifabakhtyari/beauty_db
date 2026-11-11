@@ -62,6 +62,9 @@ public class Provider {
     @Column(name = "updated_at", insertable = false, updatable = false)
     private OffsetDateTime updatedAt;
 
+    @Column(name = "cover_image_url", length = 500)
+    private String coverImageUrl;
+
     public Long getProviderId() {
         return providerId;
     }
@@ -160,5 +163,13 @@ public class Provider {
 
     public OffsetDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public String getCoverImageUrl() {
+        return coverImageUrl;
+    }
+
+    public void setCoverImageUrl(String coverImageUrl) {
+        this.coverImageUrl = coverImageUrl;
     }
 }

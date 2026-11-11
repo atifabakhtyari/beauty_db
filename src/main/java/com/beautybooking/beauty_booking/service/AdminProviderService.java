@@ -85,7 +85,8 @@ public class AdminProviderService {
                 provider.getIntroduction(),
                 provider.getInstagramUrl(),
                 provider.isActive(),
-                provider.getApprovalStatus()
+                provider.getApprovalStatus(),
+                provider.getCoverImageUrl()
         );
     }
 }

@@ -136,6 +136,7 @@ public class ProviderService {
                 ));
     }
 
+
     private ProviderProfileResponse toResponse(Provider provider) {
         return new ProviderProfileResponse(
                 provider.getProviderId(),
@@ -149,7 +150,8 @@ public class ProviderService {
                 provider.getIntroduction(),
                 provider.getInstagramUrl(),
                 provider.isActive(),
-                provider.getApprovalStatus()
+                provider.getApprovalStatus(),
+                provider.getCoverImageUrl()
         );
     }
 }

@@ -16,5 +16,6 @@ public record ProviderProfileResponse(
         String introduction,
         String instagramUrl,
         boolean active,
-        ProviderApprovalStatus approvalStatus
+        ProviderApprovalStatus approvalStatus,
+        String coverImageUrl
 ) {}
