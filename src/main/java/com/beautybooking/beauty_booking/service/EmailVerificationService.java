@@ -1,15 +1,13 @@
-
 package com.beautybooking.beauty_booking.service;
 
-import com.resend.Resend;
-import com.resend.core.exception.ResendException;
-import com.resend.services.emails.model.CreateEmailOptions;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mail.MailException;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,11 +22,9 @@ import java.util.Locale;
 @Service
 public class EmailVerificationService {
 
-    private static final Logger logger =
-            LoggerFactory.getLogger(EmailVerificationService.class);
-
     private final JdbcTemplate jdbcTemplate;
-    private final Resend resend;
+    private final JavaMailSender mailSender;
+    private final String senderEmail;
 
     private final BCryptPasswordEncoder passwordEncoder =
             new BCryptPasswordEncoder();
@@ -37,14 +33,16 @@ public class EmailVerificationService {
 
     public EmailVerificationService(
             JdbcTemplate jdbcTemplate,
-            @Value("${resend.api-key}") String apiKey
+            JavaMailSender mailSender,
+            @Value("${spring.mail.username}") String senderEmail
     ) {
         this.jdbcTemplate = jdbcTemplate;
-        this.resend = new Resend(apiKey);
+        this.mailSender = mailSender;
+        this.senderEmail = senderEmail;
     }
 
     /**
-     * تولید و ارسال کد تأیید ایمیل با Resend
+     * تولید، ذخیره و ارسال کد تأیید ایمیل
      */
     @Transactional
     public void sendVerificationCode(String email) {
@@ -52,6 +50,7 @@ public class EmailVerificationService {
         String normalizedEmail =
                 email.trim().toLowerCase(Locale.ROOT);
 
+        // پیدا کردن شناسه کاربر
         Long userId = jdbcTemplate.query(
                 """
                 SELECT user_id
@@ -66,6 +65,7 @@ public class EmailVerificationService {
             return;
         }
 
+        // بررسی تأیید شدن ایمیل
         Boolean verified = jdbcTemplate.query(
                 """
                 SELECT email_verified
@@ -80,17 +80,21 @@ public class EmailVerificationService {
             return;
         }
 
+        // تولید کد تصادفی ۶ رقمی
         String code = String.format(
                 Locale.ROOT,
                 "%06d",
                 secureRandom.nextInt(1_000_000)
         );
 
+        // Hash کردن کد برای ذخیره امن در دیتابیس
         String codeHash = passwordEncoder.encode(code);
 
+        // اعتبار کد: ۱۰ دقیقه
         OffsetDateTime expiresAt =
                 OffsetDateTime.now().plusMinutes(10);
 
+        // ذخیره کد در دیتابیس
         jdbcTemplate.update(
                 """
                 INSERT INTO public.email_verification_codes
@@ -108,33 +112,73 @@ public class EmailVerificationService {
                 Timestamp.from(expiresAt.toInstant())
         );
 
-        CreateEmailOptions params = CreateEmailOptions.builder()
-                .from("onboarding@resend.dev")
-                .to(normalizedEmail)
-                .subject("کد تأیید ایمیل نوبتیک")
-                .html(
-                        "<div style='font-family:Arial,sans-serif;"
-                                + "direction:rtl;text-align:center;'>"
-                                + "<h2>تأیید ایمیل نوبتیک</h2>"
-                                + "<p>کد تأیید ایمیل شما:</p>"
-                                + "<h1 style='letter-spacing:8px;'>"
-                                + code
-                                + "</h1>"
-                                + "<p>این کد تا ۱۰ دقیقه اعتبار دارد.</p>"
-                                + "<p>اگر این درخواست را انجام نداده‌اید،"
-                                + " این پیام را نادیده بگیرید.</p>"
-                                + "</div>"
-                )
-                .build();
+        // ارسال ایمیل از طریق Gmail SMTP
+        sendEmail(normalizedEmail, code);
+    }
+
+    /**
+     * ارسال ایمیل HTML با Gmail SMTP
+     */
+    private void sendEmail(String recipientEmail, String code) {
 
         try {
-            resend.emails().send(params);
-        } catch (ResendException e) {
-            // کد تأیید نباید در لاگ ثبت شود.
-            logger.error("Resend email sending failed", e);
+            MimeMessage message = mailSender.createMimeMessage();
 
+            MimeMessageHelper helper = new MimeMessageHelper(
+                    message,
+                    true,
+                    "UTF-8"
+            );
+
+            helper.setFrom(senderEmail);
+            helper.setTo(recipientEmail);
+            helper.setSubject("کد تأیید ایمیل نوبتیک");
+
+            String htmlContent =
+                    """
+                    <div style="
+                        font-family: Arial, sans-serif;
+                        direction: rtl;
+                        text-align: center;
+                        padding: 25px;
+                        background-color: #f7f7f7;
+                    ">
+                        <div style="
+                            background-color: white;
+                            padding: 30px;
+                            border-radius: 12px;
+                        ">
+                            <h2>تأیید ایمیل نوبتیک</h2>
+
+                            <p>کد تأیید ایمیل شما:</p>
+
+                            <h1 style="
+                                letter-spacing: 8px;
+                                color: #6c4ab6;
+                                font-size: 32px;
+                            ">
+                                """ + code + """
+                            </h1>
+
+                            <p>این کد تا ۱۰ دقیقه اعتبار دارد.</p>
+
+                            <p>
+                                اگر این درخواست را انجام نداده‌اید،
+                                این پیام را نادیده بگیرید.
+                            </p>
+                        </div>
+                    </div>
+                    """;
+
+            helper.setText(htmlContent, true);
+
+            mailSender.send(message);
+
+        } catch (MessagingException | MailException e) {
+
+            // هرگز کد تأیید یا رمز ایمیل را در لاگ ثبت نکن
             throw new IllegalStateException(
-                    "ارسال ایمیل تأیید از طریق Resend ناموفق بود.",
+                    "ارسال ایمیل تأیید از طریق Gmail ناموفق بود.",
                     e
             );
         }
@@ -184,7 +228,9 @@ public class EmailVerificationService {
 
         VerificationRecord record = records.get(0);
 
+        // اگر ایمیل قبلاً تأیید شده باشد
         if (record.emailVerified()) {
+
             jdbcTemplate.update(
                     """
                     DELETE FROM public.email_verification_codes
@@ -192,18 +238,23 @@ public class EmailVerificationService {
                     """,
                     record.verificationId()
             );
+
             return true;
         }
 
+        // حداکثر ۵ بار تلاش
         if (record.attempts() >= 5) {
             return false;
         }
 
+        // بررسی انقضای کد
         if (!record.expiresAt().isAfter(Instant.now())) {
             return false;
         }
 
+        // بررسی درستی کد
         if (!passwordEncoder.matches(code, record.codeHash())) {
+
             jdbcTemplate.update(
                     """
                     UPDATE public.email_verification_codes
@@ -216,6 +267,7 @@ public class EmailVerificationService {
             return false;
         }
 
+        // تأیید ایمیل و فعال‌سازی کاربر
         jdbcTemplate.update(
                 """
                 UPDATE public.users
@@ -227,6 +279,7 @@ public class EmailVerificationService {
                 record.userId()
         );
 
+        // حذف کد پس از تأیید موفق
         jdbcTemplate.update(
                 """
                 DELETE FROM public.email_verification_codes
