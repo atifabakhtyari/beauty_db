@@ -97,6 +97,12 @@ public class SecurityConfig {
                                 "/v3/api-docs.yaml"
                         ).permitAll()
 
+                        // نمایش عکس پروفایل برای همه کاربران
+                        .requestMatchers(
+                                HttpMethod.GET,
+                                "/api/public/profile-images/**"
+                        ).permitAll()
+
                         // مسیرهای مخصوص نقش‌ها
                         .requestMatchers("/api/admin/**")
                         .hasRole("ADMIN")

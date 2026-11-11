@@ -1,4 +1,3 @@
-
 package com.beautybooking.beauty_booking.dto;
 
 import com.beautybooking.beauty_booking.entity.UserRole;
@@ -9,6 +8,7 @@ public record RegisterResponse(
         String lastName,
         String email,
         UserRole role,
-        Integer age
+        Integer age,
+        String profileImageUrl
 ) {
 }

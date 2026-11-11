@@ -59,6 +59,9 @@ public class User {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
+    @Column(name = "profile_image_url", length = 500)
+    private String profileImageUrl;
+
     // سازنده موردنیاز JPA
     public User() {
     }
@@ -154,4 +157,14 @@ public class User {
     public OffsetDateTime getUpdatedAt() {
         return updatedAt;
     }
+
+
+    public String getProfileImageUrl() {
+        return profileImageUrl;
+    }
+
+    public void setProfileImageUrl(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
+    }
+
 }

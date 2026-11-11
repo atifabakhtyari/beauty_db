@@ -99,12 +99,13 @@ public class AuthService {
         );
 
         return new RegisterResponse(
-                savedUser.getUserId(),
-                savedUser.getFirstName(),
-                savedUser.getLastName(),
-                savedUser.getEmail(),
-                savedUser.getRole(),
-                savedUser.getAge()
+                user.getUserId(),
+                user.getFirstName(),
+                user.getLastName(),
+                user.getEmail(),
+                user.getRole(),
+                user.getAge(),
+                user.getProfileImageUrl()
         );
     }
 }
