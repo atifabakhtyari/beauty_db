@@ -44,8 +44,14 @@ public class ProviderMediaService {
         String newUrl = storage.save(file);
         String oldUrl = provider.getCoverImageUrl();
 
-        provider.setCoverImageUrl(newUrl);
-        providerRepository.save(provider);
+        try {
+            provider.setCoverImageUrl(newUrl);
+            providerRepository.saveAndFlush(provider);
+        } catch (RuntimeException e) {
+            // اگر ذخیره در دیتابیس شکست بخورد، فایل جدید باقی نمی‌ماند.
+            storage.delete(newUrl);
+            throw e;
+        }
 
         storage.delete(oldUrl);
 
@@ -110,7 +116,7 @@ public class ProviderMediaService {
         image.setDisplayOrder((int) currentCount);
 
         try {
-            ProviderImage saved = imageRepository.save(image);
+            ProviderImage saved = imageRepository.saveAndFlush(image);
             return toResponse(saved);
         } catch (RuntimeException e) {
             storage.delete(imageUrl);

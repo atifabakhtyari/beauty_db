@@ -31,6 +31,9 @@ public class PasswordResetService {
     private final JdbcTemplate jdbcTemplate;
     private final JavaMailSender mailSender;
     private final String senderEmail;
+    private final PasswordResetRateLimiter rateLimiter;
+    private final int codeExpiryMinutes;
+    private final int maxCodeAttempts;
 
     private final BCryptPasswordEncoder passwordEncoder =
             new BCryptPasswordEncoder();
@@ -40,32 +43,33 @@ public class PasswordResetService {
     public PasswordResetService(
             JdbcTemplate jdbcTemplate,
             JavaMailSender mailSender,
-            @Value("${spring.mail.username}") String senderEmail
+            PasswordResetRateLimiter rateLimiter,
+            @Value("${spring.mail.username}") String senderEmail,
+            @Value("${app.password-reset.code-expiry-minutes:10}")
+            int codeExpiryMinutes,
+            @Value("${app.password-reset.max-code-attempts:5}")
+            int maxCodeAttempts
     ) {
         this.jdbcTemplate = jdbcTemplate;
         this.mailSender = mailSender;
+        this.rateLimiter = rateLimiter;
         this.senderEmail = senderEmail;
+        this.codeExpiryMinutes = codeExpiryMinutes;
+        this.maxCodeAttempts = maxCodeAttempts;
     }
 
     // مرحله اول: درخواست کد بازیابی
     @Transactional
     public void requestReset(PasswordResetRequest request) {
 
-        String email = request.email()
-                .trim()
-                .toLowerCase(Locale.ROOT);
+        String email = normalizeEmail(request.email());
 
-        Long userId = jdbcTemplate.query(
-                """
-                SELECT user_id
-                FROM public.users
-                WHERE LOWER(email) = ?
-                  AND is_active = TRUE
-                  AND email_verified = TRUE
-                """,
-                rs -> rs.next() ? rs.getLong("user_id") : null,
-                email
-        );
+        // محدودیت نرخ برای همه ایمیل‌ها یکسان اعمال می‌شود تا
+        // وجود یا عدم وجود حساب افشا نشود.
+        rateLimiter.assertRequestAllowed(email);
+        rateLimiter.recordRequest(email);
+
+        Long userId = findEligibleUserId(email);
 
         // برای جلوگیری از شناسایی ایمیل‌های ثبت‌شده،
         // در هر دو حالت پاسخ یکسان به کاربر داده می‌شود.
@@ -73,7 +77,7 @@ public class PasswordResetService {
             return;
         }
 
-        // تولید کد شش‌رقمی
+        // تولید کد شش‌رقمی با SecureRandom
         String code = String.format(
                 Locale.ROOT,
                 "%06d",
@@ -83,9 +87,8 @@ public class PasswordResetService {
         // رمزنگاری کد
         String codeHash = passwordEncoder.encode(code);
 
-        // اعتبار کد: ۱۰ دقیقه
         OffsetDateTime expiresAt =
-                OffsetDateTime.now().plusMinutes(10);
+                OffsetDateTime.now().plusMinutes(codeExpiryMinutes);
 
         // ذخیره یا جایگزینی درخواست قبلی
         jdbcTemplate.update(
@@ -109,6 +112,20 @@ public class PasswordResetService {
         );
 
         sendResetEmail(email, code);
+    }
+
+    private Long findEligibleUserId(String email) {
+        return jdbcTemplate.query(
+                """
+                SELECT user_id
+                FROM public.users
+                WHERE LOWER(email) = ?
+                  AND is_active = TRUE
+                  AND email_verified = TRUE
+                """,
+                rs -> rs.next() ? rs.getLong("user_id") : null,
+                email
+        );
     }
 
     // ارسال ایمیل بازیابی رمز
@@ -140,7 +157,8 @@ public class PasswordResetService {
                     """ + code + """
                         </h1>
 
-                        <p>این کد تا ۱۰ دقیقه اعتبار دارد.</p>
+                        <p>این کد تا """ + codeExpiryMinutes + """
+                         دقیقه اعتبار دارد.</p>
 
                         <p>اگر شما درخواست بازیابی نداده‌اید،
                         این ایمیل را نادیده بگیرید.</p>
@@ -154,8 +172,10 @@ public class PasswordResetService {
 
         } catch (MessagingException | MailException e) {
 
-            throw new IllegalStateException(
-                    "ارسال ایمیل بازیابی رمز ناموفق بود.",
+            // هیچ جزئیات حساسی (کد، اعتبارنامه SMTP) افشا نمی‌شود.
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "ارسال ایمیل بازیابی در حال حاضر امکان‌پذیر نیست.",
                     e
             );
         }
@@ -165,9 +185,9 @@ public class PasswordResetService {
     @Transactional
     public boolean verifyCode(PasswordResetVerifyRequest request) {
 
-        String email = request.email()
-                .trim()
-                .toLowerCase(Locale.ROOT);
+        String email = normalizeEmail(request.email());
+
+        rateLimiter.assertVerifyAllowed(email);
 
         ResetRecord record = jdbcTemplate.query(
                 """
@@ -195,16 +215,25 @@ public class PasswordResetService {
         );
 
         if (record == null) {
+            rateLimiter.recordVerifyFailure(email);
             return false;
         }
 
-        // حداکثر پنج تلاش
-        if (record.attempts() >= 5) {
+        // کد تأییدشده قبلاً استفاده شده و قابل استفاده مجدد نیست.
+        if (record.verified()) {
+            rateLimiter.recordVerifyFailure(email);
+            return false;
+        }
+
+        // حداکثر تلاش مجاز برای هر کد
+        if (record.attempts() >= maxCodeAttempts) {
+            rateLimiter.recordVerifyFailure(email);
             return false;
         }
 
         // بررسی انقضای کد
         if (!record.expiresAt().isAfter(Instant.now())) {
+            rateLimiter.recordVerifyFailure(email);
             return false;
         }
 
@@ -223,6 +252,7 @@ public class PasswordResetService {
                     record.userId()
             );
 
+            rateLimiter.recordVerifyFailure(email);
             return false;
         }
 
@@ -236,6 +266,7 @@ public class PasswordResetService {
                 record.userId()
         );
 
+        rateLimiter.recordVerifySuccess(email);
         return true;
     }
 
@@ -243,9 +274,7 @@ public class PasswordResetService {
     @Transactional
     public void confirmReset(PasswordResetConfirmRequest request) {
 
-        String email = request.email()
-                .trim()
-                .toLowerCase(Locale.ROOT);
+        String email = normalizeEmail(request.email());
 
         Long userId = jdbcTemplate.query(
                 """
@@ -256,12 +285,13 @@ public class PasswordResetService {
                 WHERE LOWER(u.email) = ?
                   AND pr.verified = TRUE
                   AND pr.expires_at > CURRENT_TIMESTAMP
-                  AND pr.attempts < 5
+                  AND pr.attempts < ?
                   AND u.is_active = TRUE
                 FOR UPDATE OF pr
                 """,
                 rs -> rs.next() ? rs.getLong("user_id") : null,
-                email
+                email,
+                maxCodeAttempts
         );
 
         if (userId == null) {
@@ -275,11 +305,13 @@ public class PasswordResetService {
         String newPasswordHash =
                 passwordEncoder.encode(request.newPassword());
 
-        // بروزرسانی رمز عبور کاربر
+        // بروزرسانی رمز عبور و ثبت زمان تغییر رمز.
+        // توکن‌های صادرشده قبل از این زمان توسط فیلتر JWT رد می‌شوند.
         jdbcTemplate.update(
                 """
                 UPDATE public.users
                 SET password_hash = ?,
+                    password_changed_at = clock_timestamp(),
                     updated_at = CURRENT_TIMESTAMP
                 WHERE user_id = ?
                 """,
@@ -287,7 +319,7 @@ public class PasswordResetService {
                 userId
         );
 
-        // حذف کد بازیابی پس از موفقیت
+        // حذف کد بازیابی پس از موفقیت (جلوگیری از استفاده مجدد)
         jdbcTemplate.update(
                 """
                 DELETE FROM public.password_reset_codes
@@ -295,6 +327,10 @@ public class PasswordResetService {
                 """,
                 userId
         );
+    }
+
+    private String normalizeEmail(String email) {
+        return email.trim().toLowerCase(Locale.ROOT);
     }
 
     private record ResetRecord(

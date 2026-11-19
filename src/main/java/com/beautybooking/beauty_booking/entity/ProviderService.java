@@ -25,6 +25,10 @@ public class ProviderService {
     @Column(name = "duration_minutes")
     private Integer durationMinutes;
 
+    // وضعیت انتشار خدمت (پیش‌نویس/فعال)
+    @Column(name = "is_active", nullable = false)
+    private boolean isActive = true;
+
     // ارتباط با دسته‌بندی خدمت
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id")
@@ -64,6 +68,14 @@ public class ProviderService {
 
     public void setDurationMinutes(Integer durationMinutes) {
         this.durationMinutes = durationMinutes;
+    }
+
+    public boolean isActive() {
+        return isActive;
+    }
+
+    public void setActive(boolean active) {
+        this.isActive = active;
     }
 
     public ServiceCategory getCategory() {

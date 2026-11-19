@@ -93,7 +93,9 @@ public class ProfileImageService {
         );
 
         try {
-            userRepository.save(user);
+            // flush ensures a database failure is detected before the old
+            // image is removed.
+            userRepository.saveAndFlush(user);
         } catch (RuntimeException e) {
             try {
                 Files.deleteIfExists(target);
@@ -121,7 +123,7 @@ public class ProfileImageService {
         }
 
         user.setProfileImageUrl(null);
-        userRepository.save(user);
+        userRepository.saveAndFlush(user);
 
         deleteOldImage(oldImageUrl);
 

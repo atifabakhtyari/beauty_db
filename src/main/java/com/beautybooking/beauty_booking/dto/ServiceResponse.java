@@ -8,6 +8,7 @@ public record ServiceResponse(
         BigDecimal price,
         Integer durationMinutes,
         String categoryId,
-        String categoryName
+        String categoryName,
+        boolean isActive
 ) {
 }

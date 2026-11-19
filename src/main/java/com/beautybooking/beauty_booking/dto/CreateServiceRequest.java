@@ -14,6 +14,8 @@ public record CreateServiceRequest(
         @NotNull(message = "قیمت خدمت الزامی است")
         @DecimalMin(value = "0.0", inclusive = false,
                 message = "قیمت باید بیشتر از صفر باشد")
+        @Digits(integer = 12, fraction = 0,
+                message = "قیمت باید یک عدد صحیح باشد")
         BigDecimal price,
 
         @NotNull(message = "مدت زمان خدمت الزامی است")

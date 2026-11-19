@@ -10,7 +10,6 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/provider/profile")
 public class ProviderProfileController {
 
     private final ProviderService providerService;
@@ -19,7 +18,7 @@ public class ProviderProfileController {
         this.providerService = providerService;
     }
 
-    @PostMapping
+    @PostMapping("/api/provider/profile")
     @ResponseStatus(HttpStatus.CREATED)
     @PreAuthorize("hasRole('PROVIDER')")
     public ProviderProfileResponse createProfile(
@@ -28,7 +27,8 @@ public class ProviderProfileController {
         return providerService.createProfile(request);
     }
 
-    @GetMapping("/me")
+    // مسیر قدیمی برای سازگاری حفظ شده و مسیر نسخه‌دار نیز پشتیبانی می‌شود.
+    @GetMapping({"/api/provider/profile/me", "/api/v1/provider/profile"})
     @PreAuthorize("hasRole('PROVIDER')")
     public ProviderProfileResponse getMyProfile() {
         return providerService.getMyProfile();

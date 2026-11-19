@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
+import javax.imageio.ImageIO;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -38,7 +40,8 @@ public class ProviderImageStorageService {
 
     public String save(MultipartFile file) {
 
-        String extension = detectExtension(file);
+        byte[] bytes = readBytes(file);
+        String extension = detectExtension(bytes);
 
         String filename = UUID.randomUUID() + "." + extension;
 
@@ -54,7 +57,7 @@ public class ProviderImageStorageService {
         try {
             Files.write(
                     target,
-                    file.getBytes(),
+                    bytes,
                     StandardOpenOption.CREATE_NEW
             );
         } catch (IOException e) {
@@ -113,7 +116,7 @@ public class ProviderImageStorageService {
         }
     }
 
-    private String detectExtension(MultipartFile file) {
+    private byte[] readBytes(MultipartFile file) {
 
         if (file == null || file.isEmpty()) {
             throw new ResponseStatusException(
@@ -132,39 +135,88 @@ public class ProviderImageStorageService {
         try {
             byte[] bytes = file.getBytes();
 
-            if (bytes.length >= 8 &&
-                    (bytes[0] & 0xFF) == 0x89 &&
-                    bytes[1] == 0x50 &&
-                    bytes[2] == 0x4E &&
-                    bytes[3] == 0x47 &&
-                    bytes[4] == 0x0D &&
-                    bytes[5] == 0x0A &&
-                    bytes[6] == 0x1A &&
-                    bytes[7] == 0x0A) {
-                return "png";
+            if (bytes.length == 0 || bytes.length > MAX_SIZE) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "حجم تصویر نامعتبر است."
+                );
             }
 
-            if (bytes.length >= 3 &&
-                    (bytes[0] & 0xFF) == 0xFF &&
-                    (bytes[1] & 0xFF) == 0xD8 &&
-                    (bytes[2] & 0xFF) == 0xFF) {
-                return "jpg";
-            }
+            return bytes;
 
-            if (bytes.length >= 12 &&
-                    new String(bytes, 0, 4, StandardCharsets.US_ASCII)
-                            .equals("RIFF") &&
-                    new String(bytes, 8, 4, StandardCharsets.US_ASCII)
-                            .equals("WEBP")) {
-                return "webp";
-            }
+        } catch (IOException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "خواندن فایل تصویر ناموفق بود."
+            );
+        }
+    }
 
-        } catch (IOException ignored) {
+    private String detectExtension(byte[] bytes) {
+
+        if (isPng(bytes)) {
+            ensureDecodable(bytes);
+            return "png";
+        }
+
+        if (isJpeg(bytes)) {
+            ensureDecodable(bytes);
+            return "jpg";
+        }
+
+        if (isWebp(bytes)) {
+            // کتابخانه استاندارد Java رمزگشای WebP ندارد؛
+            // اعتبارسنجی محتوای اصلی با امضای فایل انجام می‌شود.
+            return "webp";
         }
 
         throw new ResponseStatusException(
                 HttpStatus.BAD_REQUEST,
                 "فقط تصاویر JPG، PNG و WEBP مجاز هستند."
         );
+    }
+
+    private boolean isPng(byte[] bytes) {
+        return bytes.length >= 8 &&
+                (bytes[0] & 0xFF) == 0x89 &&
+                bytes[1] == 0x50 &&
+                bytes[2] == 0x4E &&
+                bytes[3] == 0x47 &&
+                bytes[4] == 0x0D &&
+                bytes[5] == 0x0A &&
+                bytes[6] == 0x1A &&
+                bytes[7] == 0x0A;
+    }
+
+    private boolean isJpeg(byte[] bytes) {
+        return bytes.length >= 3 &&
+                (bytes[0] & 0xFF) == 0xFF &&
+                (bytes[1] & 0xFF) == 0xD8 &&
+                (bytes[2] & 0xFF) == 0xFF;
+    }
+
+    private boolean isWebp(byte[] bytes) {
+        return bytes.length >= 12 &&
+                new String(bytes, 0, 4, StandardCharsets.US_ASCII)
+                        .equals("RIFF") &&
+                new String(bytes, 8, 4, StandardCharsets.US_ASCII)
+                        .equals("WEBP");
+    }
+
+    private void ensureDecodable(byte[] bytes) {
+
+        try {
+            if (ImageIO.read(new ByteArrayInputStream(bytes)) == null) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "فایل تصویر معتبر نیست یا خراب است."
+                );
+            }
+        } catch (IOException e) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "فایل تصویر معتبر نیست یا خراب است."
+            );
+        }
     }
 }

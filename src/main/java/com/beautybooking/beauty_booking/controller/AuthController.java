@@ -22,6 +22,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
@@ -74,10 +75,30 @@ public class AuthController {
     // Logout
     @PostMapping("/logout")
     public ResponseEntity<?> logout(
-            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader
+            @RequestHeader(
+                    value = HttpHeaders.AUTHORIZATION,
+                    required = false
+            ) String authorizationHeader
     ) {
 
+        // هدر باید دقیقاً یک توکن Bearer معتبر داشته باشد.
+        if (authorizationHeader == null ||
+                !authorizationHeader.startsWith("Bearer ")) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header must contain a Bearer token."
+            );
+        }
+
         String token = authorizationHeader.substring(7).trim();
+
+        if (token.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.UNAUTHORIZED,
+                    "Authorization header must contain a Bearer token."
+            );
+        }
 
         logoutService.logout(token);
 
@@ -115,11 +136,10 @@ public class AuthController {
                 passwordResetService.verifyCode(request);
 
         if (!verified) {
-            return ResponseEntity.badRequest().body(
-                    Map.of(
-                            "message",
-                            "کد واردشده نامعتبر، منقضی یا تعداد تلاش‌ها بیش از حد مجاز است."
-                    )
+            // پاسخ خطا با همان قالب ApiErrorResponse بقیه API برگردانده می‌شود.
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "کد واردشده نامعتبر، منقضی یا تعداد تلاش‌ها بیش از حد مجاز است."
             );
         }
 

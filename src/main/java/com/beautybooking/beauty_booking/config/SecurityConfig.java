@@ -19,6 +19,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -30,8 +32,25 @@ import java.util.Map;
 @EnableMethodSecurity
 public class SecurityConfig {
 
+    // پاسخ‌های خطای امنیتی باید همان قالب و فرمت زمانی بقیه API را داشته باشند.
     private final ObjectMapper objectMapper = new ObjectMapper()
-            .findAndRegisterModules();
+            .findAndRegisterModules()
+            .disable(
+                    com.fasterxml.jackson.databind
+                            .SerializationFeature.WRITE_DATES_AS_TIMESTAMPS
+            );
+
+    // احراز هویت فقط با JWT انجام می‌شود. این Bean عمداً خالی است تا
+    // Spring Boot کاربر پیش‌فرض «user» با رمز تصادفی نسازد و آن رمز را در
+    // لاگ‌ها چاپ نکند. هیچ مسیری از ورود با نام کاربری/رمز عبور استفاده نمی‌کند.
+    @Bean
+    public UserDetailsService userDetailsService() {
+        return username -> {
+            throw new UsernameNotFoundException(
+                    "Username/password authentication is not enabled"
+            );
+        };
+    }
 
     // ساخت فیلتر JWT
     @Bean
@@ -129,6 +148,9 @@ public class SecurityConfig {
                         .hasRole("ADMIN")
 
                         .requestMatchers("/api/v1/provider/**")
+                        .hasRole("PROVIDER")
+
+                        .requestMatchers("/api/provider/**")
                         .hasRole("PROVIDER")
 
                         .requestMatchers("/api/customer/**")

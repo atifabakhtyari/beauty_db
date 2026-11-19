@@ -62,6 +62,10 @@ public class User {
     @Column(name = "profile_image_url", length = 500)
     private String profileImageUrl;
 
+    // زمان آخرین تغییر رمز عبور؛ برای بی‌اعتبار کردن توکن‌های قدیمی.
+    @Column(name = "password_changed_at")
+    private OffsetDateTime passwordChangedAt;
+
     // سازنده موردنیاز JPA
     public User() {
     }
@@ -165,6 +169,14 @@ public class User {
 
     public void setProfileImageUrl(String profileImageUrl) {
         this.profileImageUrl = profileImageUrl;
+    }
+
+    public OffsetDateTime getPasswordChangedAt() {
+        return passwordChangedAt;
+    }
+
+    public void setPasswordChangedAt(OffsetDateTime passwordChangedAt) {
+        this.passwordChangedAt = passwordChangedAt;
     }
 
 }

@@ -12,6 +12,8 @@ public record UpdateServiceRequest(
 
         @DecimalMin(value = "0.0", inclusive = false,
                 message = "قیمت باید بیشتر از صفر باشد")
+        @Digits(integer = 12, fraction = 0,
+                message = "قیمت باید یک عدد صحیح باشد")
         BigDecimal price,
 
         @Min(value = 5, message = "مدت زمان حداقل 5 دقیقه است")
@@ -21,7 +23,10 @@ public record UpdateServiceRequest(
         @Size(max = 50, message = "شناسه دسته‌بندی نامعتبر است")
         @Pattern(regexp = ".*\\S.*",
                 message = "شناسه دسته‌بندی نمی‌تواند خالی باشد")
-        String categoryId
+        String categoryId,
+
+        // وضعیت انتشار خدمت؛ فقط ارائه‌دهنده تأییدشده می‌تواند مقدار true بگذارد.
+        Boolean isActive
 
 ) {
 }

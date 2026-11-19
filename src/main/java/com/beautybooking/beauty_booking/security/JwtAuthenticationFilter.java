@@ -97,7 +97,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
 
-                // مرحله ۷: دریافت نقش کاربر
+                // مرحله ۷: رد توکن‌هایی که پیش از آخرین تغییر رمز صادر شده‌اند
+                if (isTokenOlderThanPasswordChange(claims, user)) {
+
+                    SecurityContextHolder.clearContext();
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
+                // مرحله ۸: دریافت نقش کاربر
                 String currentRole = user.getRole().name();
 
                 var authentication =
@@ -111,7 +119,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 )
                         );
 
-                // مرحله ۸: ثبت احراز هویت
+                // مرحله ۹: ثبت احراز هویت
                 SecurityContextHolder.getContext()
                         .setAuthentication(authentication);
 
@@ -123,5 +131,23 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isTokenOlderThanPasswordChange(
+            Claims claims,
+            User user
+    ) {
+        if (claims.getIssuedAt() == null ||
+                user.getPasswordChangedAt() == null) {
+            return false;
+        }
+
+        // JWT زمان صدور را با دقت ثانیه ذخیره می‌کند؛
+        // زمان تغییر رمز نیز به ثانیه کوتاه می‌شود.
+        return claims.getIssuedAt().toInstant().isBefore(
+                user.getPasswordChangedAt()
+                        .toInstant()
+                        .truncatedTo(java.time.temporal.ChronoUnit.SECONDS)
+        );
     }
 }

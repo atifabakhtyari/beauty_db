@@ -7,6 +7,7 @@ import com.beautybooking.beauty_booking.entity.ProviderApprovalStatus;
 import com.beautybooking.beauty_booking.exception.BusinessException;
 import com.beautybooking.beauty_booking.exception.ResourceNotFoundException;
 import com.beautybooking.beauty_booking.repository.ProviderRepository;
+import com.beautybooking.beauty_booking.repository.ProviderServiceRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,9 +17,14 @@ import java.util.List;
 public class AdminProviderService {
 
     private final ProviderRepository providerRepository;
+    private final ProviderServiceRepository serviceRepository;
 
-    public AdminProviderService(ProviderRepository providerRepository) {
+    public AdminProviderService(
+            ProviderRepository providerRepository,
+            ProviderServiceRepository serviceRepository) {
+
         this.providerRepository = providerRepository;
+        this.serviceRepository = serviceRepository;
     }
 
     @Transactional(readOnly = true)
@@ -44,6 +50,8 @@ public class AdminProviderService {
         provider.setApprovalStatus(ProviderApprovalStatus.APPROVED);
         provider.setActive(true);
 
+        // خدمات پیش‌نویس به صورت خودکار منتشر نمی‌شوند؛
+        // ارائه‌دهنده باید آن‌ها را آگاهانه از طریق PATCH منتشر کند.
         return toResponse(providerRepository.save(provider));
     }
 
@@ -52,16 +60,23 @@ public class AdminProviderService {
         Provider provider = findProvider(providerId);
 
         if (provider.getApprovalStatus()
-                != ProviderApprovalStatus.PENDING) {
+                != ProviderApprovalStatus.PENDING &&
+                provider.getApprovalStatus()
+                        != ProviderApprovalStatus.APPROVED) {
             throw new BusinessException(
-                    "فقط پروفایل‌های در انتظار بررسی قابل رد هستند."
+                    "فقط پروفایل‌های در انتظار بررسی یا تأییدشده قابل رد هستند."
             );
         }
 
         provider.setApprovalStatus(ProviderApprovalStatus.REJECTED);
         provider.setActive(false);
 
-        return toResponse(providerRepository.save(provider));
+        Provider saved = providerRepository.save(provider);
+
+        // هیچ خدمتی نباید پس از رد شدن ارائه‌دهنده منتشر باقی بماند.
+        serviceRepository.deactivateAllByProviderId(providerId);
+
+        return toResponse(saved);
     }
 
     private Provider findProvider(Long providerId) {

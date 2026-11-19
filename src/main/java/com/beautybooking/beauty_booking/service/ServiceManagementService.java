@@ -9,19 +9,25 @@ import com.beautybooking.beauty_booking.dto.ServiceCategoryListResponse;
 
 import com.beautybooking.beauty_booking.entity.User;
 import com.beautybooking.beauty_booking.entity.Provider;
+import com.beautybooking.beauty_booking.entity.ProviderApprovalStatus;
 import com.beautybooking.beauty_booking.entity.ProviderService;
 import com.beautybooking.beauty_booking.entity.ServiceCategory;
+import com.beautybooking.beauty_booking.entity.ServicePortfolioItem;
 
 import com.beautybooking.beauty_booking.repository.UserRepository;
 import com.beautybooking.beauty_booking.repository.ProviderRepository;
 import com.beautybooking.beauty_booking.repository.ProviderServiceRepository;
 import com.beautybooking.beauty_booking.repository.ServiceCategoryRepository;
+import com.beautybooking.beauty_booking.repository.ServicePortfolioItemRepository;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -34,17 +40,23 @@ public class ServiceManagementService {
     private final ProviderRepository providerRepository;
     private final ProviderServiceRepository serviceRepository;
     private final ServiceCategoryRepository categoryRepository;
+    private final ServicePortfolioItemRepository portfolioRepository;
+    private final ProviderImageStorageService storage;
 
     public ServiceManagementService(
             UserRepository userRepository,
             ProviderRepository providerRepository,
             ProviderServiceRepository serviceRepository,
-            ServiceCategoryRepository categoryRepository) {
+            ServiceCategoryRepository categoryRepository,
+            ServicePortfolioItemRepository portfolioRepository,
+            ProviderImageStorageService storage) {
 
         this.userRepository = userRepository;
         this.providerRepository = providerRepository;
         this.serviceRepository = serviceRepository;
         this.categoryRepository = categoryRepository;
+        this.portfolioRepository = portfolioRepository;
+        this.storage = storage;
     }
 
     // دریافت ارائه‌دهنده فعلی
@@ -105,6 +117,31 @@ public class ServiceManagementService {
                 ));
     }
 
+    // قیمت در دیتابیس BIGINT است؛ بنابراین فقط عدد صحیح مجاز است.
+    // این بررسی از گرد شدن خاموش مقادیر اعشاری جلوگیری می‌کند.
+    private void validatePrice(BigDecimal price) {
+
+        if (price == null) {
+            return;
+        }
+
+        if (price.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "قیمت باید بیشتر از صفر باشد"
+            );
+        }
+
+        if (price.remainder(BigDecimal.ONE)
+                .compareTo(BigDecimal.ZERO) != 0) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "قیمت باید یک عدد صحیح باشد"
+            );
+        }
+    }
+
     // تبدیل Entity به DTO
     private ServiceResponse toResponse(ProviderService service) {
 
@@ -116,7 +153,8 @@ public class ServiceManagementService {
                 service.getPrice(),
                 service.getDurationMinutes(),
                 category != null ? category.getId() : null,
-                category != null ? category.getName() : null
+                category != null ? category.getName() : null,
+                service.isActive()
         );
     }
 
@@ -172,6 +210,8 @@ public class ServiceManagementService {
 
         ServiceCategory category = getCategory(request.categoryId());
 
+        validatePrice(request.price());
+
         boolean duplicate = serviceRepository
                 .existsByProviderIdAndServiceNameIgnoreCase(
                         provider.getProviderId(),
@@ -193,8 +233,24 @@ public class ServiceManagementService {
         service.setDurationMinutes(request.durationMinutes());
         service.setCategory(category);
 
-        ProviderService savedService =
-                serviceRepository.save(service);
+        // سیاست انتشار: فقط ارائه‌دهنده تأییدشده می‌تواند خدمت را منتشر کند.
+        // خدمات ارائه‌دهندگان در انتظار تأیید یا ردشده به صورت پیش‌نویس ذخیره می‌شوند.
+        service.setActive(
+                provider.getApprovalStatus()
+                        == ProviderApprovalStatus.APPROVED
+        );
+
+        ProviderService savedService;
+
+        try {
+            // flush باعث می‌شود نقض محدودیت یکتایی همان‌جا تشخیص داده شود.
+            savedService = serviceRepository.saveAndFlush(service);
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "این خدمت قبلاً توسط شما ثبت شده است"
+            );
+        }
 
         return toResponse(savedService);
     }
@@ -220,7 +276,8 @@ public class ServiceManagementService {
         if (request.serviceName() == null &&
                 request.price() == null &&
                 request.durationMinutes() == null &&
-                request.categoryId() == null) {
+                request.categoryId() == null &&
+                request.isActive() == null) {
 
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -241,11 +298,10 @@ public class ServiceManagementService {
             }
 
             boolean duplicate = serviceRepository
-                    .findAllByProviderId(provider.getProviderId())
-                    .stream()
-                    .anyMatch(item ->
-                            !item.getServiceId().equals(serviceId) &&
-                                    item.getServiceName().equalsIgnoreCase(newName)
+                    .existsByProviderIdAndServiceNameIgnoreCaseAndServiceIdNot(
+                            provider.getProviderId(),
+                            newName,
+                            serviceId
                     );
 
             if (duplicate) {
@@ -261,12 +317,7 @@ public class ServiceManagementService {
         // ویرایش قیمت
         if (request.price() != null) {
 
-            if (request.price().compareTo(BigDecimal.ZERO) <= 0) {
-                throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "قیمت باید بیشتر از صفر باشد"
-                );
-            }
+            validatePrice(request.price());
 
             service.setPrice(request.price());
         }
@@ -295,7 +346,32 @@ public class ServiceManagementService {
             service.setCategory(category);
         }
 
-        return toResponse(service);
+        // تغییر وضعیت انتشار
+        if (request.isActive() != null) {
+
+            boolean publish = request.isActive();
+
+            if (publish &&
+                    provider.getApprovalStatus()
+                            != ProviderApprovalStatus.APPROVED) {
+
+                throw new ResponseStatusException(
+                        HttpStatus.FORBIDDEN,
+                        "فقط ارائه‌دهنده تأییدشده می‌تواند خدمت را منتشر کند"
+                );
+            }
+
+            service.setActive(publish);
+        }
+
+        try {
+            return toResponse(serviceRepository.saveAndFlush(service));
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "خدمت دیگری با این نام وجود دارد"
+            );
+        }
     }
 
     // 5. حذف خدمت
@@ -314,7 +390,43 @@ public class ServiceManagementService {
                         "خدمت موردنظر پیدا نشد"
                 ));
 
+        // فایل‌های نمونه‌کار پس از commit حذف می‌شوند تا در صورت rollback
+        // داده‌ها و فایل‌ها ناهماهنگ نشوند.
+        List<String> imageUrls = portfolioRepository
+                .findByServiceIdOrderByCreatedAtDesc(serviceId)
+                .stream()
+                .map(ServicePortfolioItem::getImageUrl)
+                .toList();
+
         serviceRepository.delete(service);
+        serviceRepository.flush();
+
+        deleteFilesAfterCommit(imageUrls);
+    }
+
+    private void deleteFilesAfterCommit(List<String> imageUrls) {
+
+        if (imageUrls.isEmpty()) {
+            return;
+        }
+
+        Runnable cleanup = () -> imageUrls.forEach(storage::delete);
+
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+
+            TransactionSynchronizationManager.registerSynchronization(
+                    new TransactionSynchronization() {
+                        @Override
+                        public void afterCommit() {
+                            cleanup.run();
+                        }
+                    }
+            );
+
+            return;
+        }
+
+        cleanup.run();
     }
 
     // 6. دریافت فهرست دسته‌بندی‌های خدمات

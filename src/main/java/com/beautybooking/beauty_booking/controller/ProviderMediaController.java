@@ -3,9 +3,11 @@ package com.beautybooking.beauty_booking.controller;
 
 import com.beautybooking.beauty_booking.dto.ProviderImageResponse;
 import com.beautybooking.beauty_booking.dto.ProviderPublicResponse;
+import com.beautybooking.beauty_booking.dto.ServicePortfolioImageResponse;
 import com.beautybooking.beauty_booking.service.ProviderImageStorageService;
 import com.beautybooking.beauty_booking.service.ProviderMediaService;
 import com.beautybooking.beauty_booking.service.ProviderPublicService;
+import com.beautybooking.beauty_booking.service.ServicePortfolioService;
 
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -25,15 +27,18 @@ public class ProviderMediaController {
     private final ProviderMediaService mediaService;
     private final ProviderPublicService publicService;
     private final ProviderImageStorageService storage;
+    private final ServicePortfolioService portfolioService;
 
     public ProviderMediaController(
             ProviderMediaService mediaService,
             ProviderPublicService publicService,
-            ProviderImageStorageService storage
+            ProviderImageStorageService storage,
+            ServicePortfolioService portfolioService
     ) {
         this.mediaService = mediaService;
         this.publicService = publicService;
         this.storage = storage;
+        this.portfolioService = portfolioService;
     }
 
     // پروفایل عمومی سالن
@@ -96,6 +101,28 @@ public class ProviderMediaController {
     ) {
         mediaService.deleteGalleryImage(imageId);
         return ResponseEntity.noContent().build();
+    }
+
+    // آپلود تصویر نمونه‌کار برای یک خدمت مشخص
+    @PostMapping(
+            value = "/api/v1/provider/service-images",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    @PreAuthorize("hasRole('PROVIDER')")
+    public ResponseEntity<ServicePortfolioImageResponse> uploadServiceImage(
+            @RequestParam("serviceId") Long serviceId,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "description", required = false)
+            String description
+    ) {
+        ServicePortfolioImageResponse response =
+                portfolioService.uploadServiceImage(
+                        serviceId,
+                        file,
+                        description
+                );
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
     // دریافت فایل تصویر
