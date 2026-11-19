@@ -1,0 +1,308 @@
+
+package com.beautybooking.beauty_booking.service;
+
+import com.beautybooking.beauty_booking.dto.PasswordResetRequest;
+import com.beautybooking.beauty_booking.dto.PasswordResetVerifyRequest;
+import com.beautybooking.beauty_booking.dto.PasswordResetConfirmRequest;
+
+import jakarta.mail.MessagingException;
+import jakarta.mail.internet.MimeMessage;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mail.MailException;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.javamail.MimeMessageHelper;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.security.SecureRandom;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.util.Locale;
+
+@Service
+public class PasswordResetService {
+
+    private final JdbcTemplate jdbcTemplate;
+    private final JavaMailSender mailSender;
+    private final String senderEmail;
+
+    private final BCryptPasswordEncoder passwordEncoder =
+            new BCryptPasswordEncoder();
+
+    private final SecureRandom secureRandom = new SecureRandom();
+
+    public PasswordResetService(
+            JdbcTemplate jdbcTemplate,
+            JavaMailSender mailSender,
+            @Value("${spring.mail.username}") String senderEmail
+    ) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.mailSender = mailSender;
+        this.senderEmail = senderEmail;
+    }
+
+    // مرحله اول: درخواست کد بازیابی
+    @Transactional
+    public void requestReset(PasswordResetRequest request) {
+
+        String email = request.email()
+                .trim()
+                .toLowerCase(Locale.ROOT);
+
+        Long userId = jdbcTemplate.query(
+                """
+                SELECT user_id
+                FROM public.users
+                WHERE LOWER(email) = ?
+                  AND is_active = TRUE
+                  AND email_verified = TRUE
+                """,
+                rs -> rs.next() ? rs.getLong("user_id") : null,
+                email
+        );
+
+        // برای جلوگیری از شناسایی ایمیل‌های ثبت‌شده،
+        // در هر دو حالت پاسخ یکسان به کاربر داده می‌شود.
+        if (userId == null) {
+            return;
+        }
+
+        // تولید کد شش‌رقمی
+        String code = String.format(
+                Locale.ROOT,
+                "%06d",
+                secureRandom.nextInt(1_000_000)
+        );
+
+        // رمزنگاری کد
+        String codeHash = passwordEncoder.encode(code);
+
+        // اعتبار کد: ۱۰ دقیقه
+        OffsetDateTime expiresAt =
+                OffsetDateTime.now().plusMinutes(10);
+
+        // ذخیره یا جایگزینی درخواست قبلی
+        jdbcTemplate.update(
+                """
+                INSERT INTO public.password_reset_codes
+                    (user_id, code_hash, expires_at,
+                     attempts, verified, created_at)
+                VALUES (?, ?, ?, 0, FALSE, CURRENT_TIMESTAMP)
+
+                ON CONFLICT (user_id)
+                DO UPDATE SET
+                    code_hash = EXCLUDED.code_hash,
+                    expires_at = EXCLUDED.expires_at,
+                    attempts = 0,
+                    verified = FALSE,
+                    created_at = CURRENT_TIMESTAMP
+                """,
+                userId,
+                codeHash,
+                Timestamp.from(expiresAt.toInstant())
+        );
+
+        sendResetEmail(email, code);
+    }
+
+    // ارسال ایمیل بازیابی رمز
+    private void sendResetEmail(String email, String code) {
+
+        try {
+            MimeMessage message = mailSender.createMimeMessage();
+
+            MimeMessageHelper helper =
+                    new MimeMessageHelper(message, true, "UTF-8");
+
+            helper.setFrom(senderEmail);
+            helper.setTo(email);
+            helper.setSubject("بازیابی رمز عبور نوبتیک");
+
+            String html =
+                    """
+                    <div style="font-family:Arial;
+                                direction:rtl;
+                                text-align:center;
+                                padding:30px;">
+
+                        <h2>بازیابی رمز عبور نوبتیک</h2>
+
+                        <p>کد بازیابی رمز عبور شما:</p>
+
+                        <h1 style="color:#6c4ab6;
+                                   letter-spacing:8px;">
+                    """ + code + """
+                        </h1>
+
+                        <p>این کد تا ۱۰ دقیقه اعتبار دارد.</p>
+
+                        <p>اگر شما درخواست بازیابی نداده‌اید،
+                        این ایمیل را نادیده بگیرید.</p>
+
+                    </div>
+                    """;
+
+            helper.setText(html, true);
+
+            mailSender.send(message);
+
+        } catch (MessagingException | MailException e) {
+
+            throw new IllegalStateException(
+                    "ارسال ایمیل بازیابی رمز ناموفق بود.",
+                    e
+            );
+        }
+    }
+
+    // مرحله دوم: تأیید کد شش‌رقمی
+    @Transactional
+    public boolean verifyCode(PasswordResetVerifyRequest request) {
+
+        String email = request.email()
+                .trim()
+                .toLowerCase(Locale.ROOT);
+
+        ResetRecord record = jdbcTemplate.query(
+                """
+                SELECT pr.user_id,
+                       pr.code_hash,
+                       pr.expires_at,
+                       pr.attempts,
+                       pr.verified
+                FROM public.password_reset_codes pr
+                JOIN public.users u
+                    ON u.user_id = pr.user_id
+                WHERE LOWER(u.email) = ?
+                FOR UPDATE OF pr
+                """,
+                rs -> rs.next()
+                        ? new ResetRecord(
+                        rs.getLong("user_id"),
+                        rs.getString("code_hash"),
+                        rs.getTimestamp("expires_at").toInstant(),
+                        rs.getInt("attempts"),
+                        rs.getBoolean("verified")
+                )
+                        : null,
+                email
+        );
+
+        if (record == null) {
+            return false;
+        }
+
+        // حداکثر پنج تلاش
+        if (record.attempts() >= 5) {
+            return false;
+        }
+
+        // بررسی انقضای کد
+        if (!record.expiresAt().isAfter(Instant.now())) {
+            return false;
+        }
+
+        // بررسی کد
+        if (!passwordEncoder.matches(
+                request.code(),
+                record.codeHash()
+        )) {
+
+            jdbcTemplate.update(
+                    """
+                    UPDATE public.password_reset_codes
+                    SET attempts = attempts + 1
+                    WHERE user_id = ?
+                    """,
+                    record.userId()
+            );
+
+            return false;
+        }
+
+        // تأیید موفق کد
+        jdbcTemplate.update(
+                """
+                UPDATE public.password_reset_codes
+                SET verified = TRUE
+                WHERE user_id = ?
+                """,
+                record.userId()
+        );
+
+        return true;
+    }
+
+    // مرحله سوم: ثبت رمز عبور جدید
+    @Transactional
+    public void confirmReset(PasswordResetConfirmRequest request) {
+
+        String email = request.email()
+                .trim()
+                .toLowerCase(Locale.ROOT);
+
+        Long userId = jdbcTemplate.query(
+                """
+                SELECT pr.user_id
+                FROM public.password_reset_codes pr
+                JOIN public.users u
+                    ON u.user_id = pr.user_id
+                WHERE LOWER(u.email) = ?
+                  AND pr.verified = TRUE
+                  AND pr.expires_at > CURRENT_TIMESTAMP
+                  AND pr.attempts < 5
+                  AND u.is_active = TRUE
+                FOR UPDATE OF pr
+                """,
+                rs -> rs.next() ? rs.getLong("user_id") : null,
+                email
+        );
+
+        if (userId == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "درخواست بازیابی معتبر نیست یا کد تأیید نشده است."
+            );
+        }
+
+        // رمزنگاری رمز جدید
+        String newPasswordHash =
+                passwordEncoder.encode(request.newPassword());
+
+        // بروزرسانی رمز عبور کاربر
+        jdbcTemplate.update(
+                """
+                UPDATE public.users
+                SET password_hash = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE user_id = ?
+                """,
+                newPasswordHash,
+                userId
+        );
+
+        // حذف کد بازیابی پس از موفقیت
+        jdbcTemplate.update(
+                """
+                DELETE FROM public.password_reset_codes
+                WHERE user_id = ?
+                """,
+                userId
+        );
+    }
+
+    private record ResetRecord(
+            Long userId,
+            String codeHash,
+            Instant expiresAt,
+            int attempts,
+            boolean verified
+    ) {
+    }
+}
