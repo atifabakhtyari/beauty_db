@@ -16,7 +16,12 @@ public record UpdateServiceRequest(
 
         @Min(value = 5, message = "مدت زمان حداقل 5 دقیقه است")
         @Max(value = 600, message = "مدت زمان حداکثر 600 دقیقه است")
-        Integer durationMinutes
+        Integer durationMinutes,
+
+        @Size(max = 50, message = "شناسه دسته‌بندی نامعتبر است")
+        @Pattern(regexp = ".*\\S.*",
+                message = "شناسه دسته‌بندی نمی‌تواند خالی باشد")
+        String categoryId
 
 ) {
 }

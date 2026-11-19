@@ -3,6 +3,7 @@ package com.beautybooking.beauty_booking.security;
 
 import com.beautybooking.beauty_booking.entity.User;
 import com.beautybooking.beauty_booking.repository.UserRepository;
+import com.beautybooking.beauty_booking.service.LogoutService;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
@@ -24,13 +25,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final LogoutService logoutService;
 
     public JwtAuthenticationFilter(
             JwtService jwtService,
-            UserRepository userRepository) {
+            UserRepository userRepository,
+            LogoutService logoutService) {
 
         this.jwtService = jwtService;
         this.userRepository = userRepository;
+        this.logoutService = logoutService;
     }
 
     @Override
@@ -50,6 +54,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 // مرحله ۱: بررسی امضا و تاریخ انقضای JWT
                 Claims claims = jwtService.extractClaims(token);
 
+                // مرحله ۲: بررسی لیست سیاه
+                if (logoutService.isTokenBlacklisted(token)) {
+
+                    SecurityContextHolder.clearContext();
+
+                    filterChain.doFilter(request, response);
+                    return;
+                }
+
                 String email = claims.getSubject();
 
                 if (email == null || email.isBlank()) {
@@ -58,33 +71,33 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     return;
                 }
 
-                // مرحله ۲: دریافت اطلاعات فعلی کاربر از دیتابیس
+                // مرحله ۳: دریافت اطلاعات کاربر از دیتابیس
                 User user = userRepository
                         .findByEmailIgnoreCase(email)
                         .orElse(null);
 
-                // مرحله ۳: بررسی وجود کاربر
+                // مرحله ۴: بررسی وجود کاربر
                 if (user == null) {
                     SecurityContextHolder.clearContext();
                     filterChain.doFilter(request, response);
                     return;
                 }
 
-                // مرحله ۴: بررسی فعال بودن حساب
+                // مرحله ۵: بررسی فعال بودن حساب
                 if (!user.isActive()) {
                     SecurityContextHolder.clearContext();
                     filterChain.doFilter(request, response);
                     return;
                 }
 
-                // مرحله ۵: بررسی تأیید ایمیل
+                // مرحله ۶: بررسی تأیید ایمیل
                 if (!user.isEmailVerified()) {
                     SecurityContextHolder.clearContext();
                     filterChain.doFilter(request, response);
                     return;
                 }
 
-                // مرحله ۶: دریافت نقش فعلی کاربر از دیتابیس
+                // مرحله ۷: دریافت نقش کاربر
                 String currentRole = user.getRole().name();
 
                 var authentication =
@@ -98,7 +111,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                 )
                         );
 
-                // مرحله ۷: ثبت احراز هویت در Security Context
+                // مرحله ۸: ثبت احراز هویت
                 SecurityContextHolder.getContext()
                         .setAuthentication(authentication);
 

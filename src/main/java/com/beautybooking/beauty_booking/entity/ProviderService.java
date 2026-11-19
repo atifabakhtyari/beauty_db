@@ -25,6 +25,11 @@ public class ProviderService {
     @Column(name = "duration_minutes")
     private Integer durationMinutes;
 
+    // ارتباط با دسته‌بندی خدمت
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private ServiceCategory category;
+
     public Long getServiceId() {
         return serviceId;
     }
@@ -59,5 +64,13 @@ public class ProviderService {
 
     public void setDurationMinutes(Integer durationMinutes) {
         this.durationMinutes = durationMinutes;
+    }
+
+    public ServiceCategory getCategory() {
+        return category;
+    }
+
+    public void setCategory(ServiceCategory category) {
+        this.category = category;
     }
 }

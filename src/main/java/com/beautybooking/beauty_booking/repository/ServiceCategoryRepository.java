@@ -1,0 +1,13 @@
+package com.beautybooking.beauty_booking.repository;
+
+import com.beautybooking.beauty_booking.entity.ServiceCategory;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface ServiceCategoryRepository
+        extends JpaRepository<ServiceCategory, String> {
+
+    List<ServiceCategory> findTop200ByOrderByNameAsc();
+
+}
