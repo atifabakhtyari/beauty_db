@@ -27,8 +27,8 @@ public class ProviderProfileController {
         return providerService.createProfile(request);
     }
 
-    // مسیر قدیمی برای سازگاری حفظ شده و مسیر نسخه‌دار نیز پشتیبانی می‌شود.
-    @GetMapping({"/api/provider/profile/me", "/api/v1/provider/profile"})
+    // مسیر رسمی و نسخه‌دار دریافت پروفایل ارائه‌دهنده.
+    @GetMapping("/api/v1/provider/profile")
     @PreAuthorize("hasRole('PROVIDER')")
     public ProviderProfileResponse getMyProfile() {
         return providerService.getMyProfile();
