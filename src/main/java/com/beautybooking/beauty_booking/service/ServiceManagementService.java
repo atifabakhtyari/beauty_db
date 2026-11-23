@@ -2,6 +2,7 @@
 package com.beautybooking.beauty_booking.service;
 
 import com.beautybooking.beauty_booking.dto.CreateServiceRequest;
+import com.beautybooking.beauty_booking.dto.CreateServiceCategoryRequest;
 import com.beautybooking.beauty_booking.dto.UpdateServiceRequest;
 import com.beautybooking.beauty_booking.dto.ServiceResponse;
 import com.beautybooking.beauty_booking.dto.ServiceCategoryResponse;
@@ -32,6 +33,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class ServiceManagementService {
@@ -445,5 +447,49 @@ public class ServiceManagementService {
                         .toList();
 
         return new ServiceCategoryListResponse(items);
+    }
+
+    // 7. ایجاد دسته‌بندی خدمات
+    // دسته‌بندی‌ها داده مرجع سراسری هستند و فقط مدیر می‌تواند آن‌ها را بسازد؛
+    // این محدودیت در لایه کنترلر و Spring Security اعمال می‌شود.
+    @Transactional
+    public ServiceCategoryResponse createServiceCategory(
+            CreateServiceCategoryRequest request) {
+
+        String id = request.id().trim();
+        String name = request.name().trim();
+
+        if (categoryRepository.existsById(id)) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "دسته‌بندی با این شناسه قبلاً ثبت شده است"
+            );
+        }
+
+        if (categoryRepository.countByNormalizedName(
+                name.toLowerCase(Locale.ROOT)) > 0) {
+
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "دسته‌بندی با این نام قبلاً ثبت شده است"
+            );
+        }
+
+        ServiceCategory category = new ServiceCategory(id, name);
+
+        try {
+            // flush باعث می‌شود نقض ایندکس یکتای دیتابیس همان‌جا تشخیص داده شود.
+            categoryRepository.saveAndFlush(category);
+        } catch (DataIntegrityViolationException ex) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "دسته‌بندی با این شناسه یا نام قبلاً ثبت شده است"
+            );
+        }
+
+        return new ServiceCategoryResponse(
+                category.getId(),
+                category.getName()
+        );
     }
 }

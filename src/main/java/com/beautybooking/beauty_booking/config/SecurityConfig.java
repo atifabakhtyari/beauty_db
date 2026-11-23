@@ -147,6 +147,14 @@ public class SecurityConfig {
                         .requestMatchers("/api/admin/**")
                         .hasRole("ADMIN")
 
+                        // ایجاد دسته‌بندی خدمات، داده مرجع سراسری است و
+                        // فقط مدیر می‌تواند آن را تغییر دهد. این قاعده باید
+                        // پیش از قاعده کلی /api/v1/provider/** بررسی شود.
+                        .requestMatchers(
+                                HttpMethod.POST,
+                                "/api/v1/provider/service-categories"
+                        ).hasRole("ADMIN")
+
                         .requestMatchers("/api/v1/provider/**")
                         .hasRole("PROVIDER")
 
